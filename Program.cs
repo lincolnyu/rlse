@@ -261,10 +261,9 @@ namespace ConsoleApplication
         public static void Main(string[] args)
         {
             var s = new Sample(1,2);
-	    var w = new WTuple(3,4);
-	    var r = s*w;
-	    Console.WriteLine($"r={r}");
-
+            var w = new WTuple(3,4);
+            var r = s*w;
+            Console.WriteLine($"r={r}");
         }
     }
 }

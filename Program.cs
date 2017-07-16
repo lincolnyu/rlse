@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace ConsoleApplication
 {
@@ -13,30 +15,41 @@ namespace ConsoleApplication
 
         public delegate void IndexedBiOp<T1,T2>(T1 t1, T2 t2, int i1, int i2);
 
-        interface IDottable<T, TRes>
+        interface IDottable<in T, TRes>
         {
             TRes Dot(T other);
         }
 
-        interface IScalable
+        interface ILinear<T>
         {
-            void ScaleBy(double scale);
+            T Scale(double scale);
+            T Add(T t);
         }
 
-        class Tuple : IDottable<Tuple, double>, IScalable
+        class Tuple : IDottable<Tuple, double>, ILinear<Tuple>
         {
             public double V1;
             public double V2;
             public double V3;
 
-            public virtual double Dot(Tuple other)=> V1*other.V1+V2*other.V2 + V3*other.V3;
+            public virtual double Dot(Tuple other)
+                => V1 * other.V1 + V2 * other.V2 + V3 * other.V3;
 
-            public virtual void ScaleBy(double scale)
-            {
-                V1 *= scale;
-                V2 *= scale;
-                V3 *= scale;
-            }
+            public virtual Tuple Scale(double scale)
+                => new Tuple
+                {
+                    V1 = V1 * scale,
+                    V2 = V2 * scale,
+                    V3 = V3 * scale
+                };
+
+            public Tuple Add(Tuple t)
+                => new Tuple
+                {
+                    V1 = V1 + t.V1,
+                    V2 = V2 + t.V2,
+                    V3 = V3 + t.V3
+                };
 
             public static double operator*(Tuple a, Tuple b) => a.Dot(b);
         }
@@ -76,6 +89,14 @@ namespace ConsoleApplication
             }
         }
 
+        interface IVector<T> : IEnumerable<T>
+        {
+            int Length { get; }
+
+            void Add(T t, int optionalIndex);
+            void Reset();
+        }
+
         class PMatrix
         {
             public double[,] Data;
@@ -98,10 +119,9 @@ namespace ConsoleApplication
             public int RowNumber => Data.GetLength(0);
             public int ColNumber => Data.GetLength(1);
             
-
             public PMatrix Mutlply(PMatrix right)
             {
-                System.Diagnostics.Debug.Assert(ColNumber == right.RowNumber);
+                Debug.Assert(ColNumber == right.RowNumber);
                 var result = new PMatrix(RowNumber, right.ColNumber);
                 for (var i = 0; i <RowNumber; i++)
                 {
@@ -121,31 +141,73 @@ namespace ConsoleApplication
             public static PMatrix operator*(PMatrix left, PMatrix right)
                 => left.Mutlply(right);
 
-            
-            public Vector<T> RightMultiply<T>(Vector<T> left)
+            public void RightMultiply<T>(IVector<T> left, IVector<T> result)
+                where T : ILinear<T>
             {
-                System.Diagnostics.Debug.Assert(RowNumber == left.Length);
-                throw new NotImplementedException();
+                Debug.Assert(RowNumber == left.Length);
+                Debug.Assert(ColNumber == result.Length);
+                for (var i = 0; i < ColNumber; i++)
+                {
+                    var j = 0;
+                    var t = default(T);
+                    foreach (var leftv in left)
+                    {
+                        var s = this[j, i];
+                        if (j == 0)
+                        {
+                            t = leftv.Scale(s);
+                        }
+                        else
+                        {
+                            t = t.Add(leftv.Scale(s));
+                        }
+                        j++;
+                    }
+                    result.Add(t, i);
+                }
             }
 
-            public Vector<T> LeftMultiply<T>(Vector<T> right)
+            public void LeftMultiply<T>(IVector<T> right, IVector<T> result)
+                  where T : ILinear<T>
             {
-                System.Diagnostics.Debug.Assert(ColNumber == right.Length);
-                throw new NotImplementedException();
+                Debug.Assert(ColNumber == right.Length);
+                Debug.Assert(RowNumber == result.Length);
+                for (var i = 0; i < RowNumber; i++)
+                {
+                    var j = 0;
+                    var t = default(T);
+                    foreach (var rightv in right)
+                    {
+                        var s = this[i, j];
+                        if (j == 0)
+                        {
+                            t = rightv.Scale(s);
+                        }
+                        else
+                        {
+                            t = t.Add(rightv.Scale(s));
+                        }
+                        j++;
+                    }
+                    result.Add(t, i);
+                }
             }
 
-
-            public TRes Quadratic<T, TRes>(Vector<T> v) where T : IDottable<T, TRes>
+            public TRes Quadratic<T, TRes>(IVector<T> v) where T : IDottable<T, TRes>,
+                ILinear<T>
             {
-                var tmp = RightMultiply(v);
-                var tmpDot = (IDottable<Vector<T>,TRes>)tmp;
+                Debug.Assert(ColNumber == v.Length);
+                Debug.Assert(RowNumber == v.Length);
+                var tmp = new Vector<T>(v.Length);
+                RightMultiply(v, tmp);
+                var tmpDot = (IDottable<IVector<T>,TRes>)tmp;
                 return tmpDot.Dot(v);
             }
         }
 
-        class Vector<T>
+        class Vector<T> : IVector<T>
         {
-            public int Length;
+            public int Length { get; private set; }
             public LinkedList<T> Data = new LinkedList<T>();
             
             public Vector(int len)
@@ -161,7 +223,7 @@ namespace ConsoleApplication
                     Data.AddLast(t);
                 }
             }
-            public void Add(T t)
+            public void AddFirst(T t)
             {
                 Data.AddFirst(t);
                 EnforceLength();
@@ -175,60 +237,81 @@ namespace ConsoleApplication
                 }
             }
             
-            public void Pair<T2>(Vector<T2> other, BiOp<T, T2> op)
+            public void Pair<T2>(IVector<T2> other, BiOp<T, T2> op)
             {
                 var p1 = Data.First;
-                var p2 = other.Data.First;
-                for ( ; p1 != null && p2 != null; p1 = p1.Next, p2 = p2.Next)
+                var enum2 = other.GetEnumerator();
+                for (var avail2 = enum2.MoveNext(); p1 != null && avail2; 
+                    p1 = p1.Next, avail2 = enum2.MoveNext())
                 {
-                    op(p1.Value, p2.Value);
+                    var v2 = enum2.Current;
+                    op(p1.Value, v2);
                 }
             }
 
-            public void Discarte<T2>(Vector<T2> other, IndexedBiOp<T, T2> op)
+            public void Discarte<T2>(IVector<T2> other, IndexedBiOp<T, T2> op)
             {
                 var i = 0;
                 for (var p1 = Data.First; p1 != null; p1 = p1.Next)
                 {
                     var j = 0;
-                    for (var p2 = other.Data.First; p2 != null; p2 = p2.Next)
+                    var enum2 = other.GetEnumerator();
+                    for (var avail2 = enum2.MoveNext(); avail2; 
+                        avail2 = enum2.MoveNext())
                     {
-                        op(p1.Value, p2.Value, i, j);
+                        var v2 = enum2.Current;
+                        op(p1.Value, v2, i, j);
                         j++;
                     }
                     i++;
                 }
             }
+
+            public void Add(T t, int optionalIndex)
+            {
+                Debug.Assert(optionalIndex == Data.Count);
+                Data.AddLast(t);
+            }
+
+            public void Reset()
+                => Data.Clear();
+
+            public IEnumerator<T> GetEnumerator()
+                => Data.GetEnumerator();
+
+            IEnumerator IEnumerable.GetEnumerator()
+                => GetEnumerator();
         }
 
-        class TupleVector : Vector<Tuple>, IDottable<Vector<Tuple>, double>
+        class TupleVector<T> : Vector<T>, IDottable<IVector<T>, double> 
+            where T : IDottable<T, double>
         {
             public TupleVector(int len) : base(len)
             {
             }
 
-            public static double operator*(TupleVector a, TupleVector b)
+            public static double operator*(TupleVector<T> a, TupleVector<T> b)
                 => a.Dot(b);
 
-            public PMatrix DiscarteMultiply(TupleVector other)
+            public PMatrix DiscarteMultiply(TupleVector<T> other)
             {
                 var result = new PMatrix(Length, other.Length);
-                Discarte(other, (a, b, i, j)=> result[i,j] = a*b);
+                Discarte(other, (a, b, i, j)=> result[i,j] = a.Dot(b));
                 return result;
             }
 
-            public double Dot(Vector<Tuple> other)
+            public double Dot(IVector<T> other)
             {
                 double result = 0;
-                Pair(other, (a,b)=> result += a*b);
+                Pair(other, (a,b)=> result += a.Dot(b));
                 return result;
             }
         }
 
         class RLSEMapper
         {
-            public Vector<WTuple> Ws;
-            public Vector<Sample> Xs;
+            public TupleVector<WTuple> Ws;
+            public TupleVector<Sample> Xs;
             public int TapCount;
             public double Lambda;
             
@@ -246,7 +329,8 @@ namespace ConsoleApplication
             
             public void RecordSample(double x, double y)
             {
-                Xs.Add(new Sample(x,y));
+                Xs.AddFirst(new Sample(x,y));
+             //   Xs.Dot(Ws);
             }
         /*  
             public double MapXToY(double x)

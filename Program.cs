@@ -11,6 +11,24 @@ namespace ConsoleApplication
         // Suppose Y = k X + b
         //
 
+        public class TypeFactory
+        {
+            public static readonly TypeFactory Instance = new TypeFactory();
+
+            public T Create<T>()
+            {
+                if (typeof(T) == typeof(Tuple))
+                {
+                    return (T)(object)(new Tuple());
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    return (T)(object)0.0;
+                }
+                throw new NotSupportedException("Unsupported type");
+            }
+        }
+
         public delegate void BiOp<T1, T2>(T1 t1, T2 t2);
 
         public delegate void IndexedBiOp<T1,T2>(T1 t1, T2 t2, int i1, int i2);
@@ -43,10 +61,9 @@ namespace ConsoleApplication
         {
             public double V1;
             public double V2;
-            public double V3;
 
             public virtual double Dot(Tuple other)
-                => V1 * other.V1 + V2 * other.V2 + V3 * other.V3;
+                => V1 * other.V1 + V2 * other.V2;
 
             public double Dot<T2>(T2 other) where T2 : IDottable<T2, double>
             {
@@ -62,7 +79,6 @@ namespace ConsoleApplication
             {
                 result.V1 = V1 * scale;
                 result.V2 = V2 * scale;
-                result.V3 = V3 * scale;
             }
 
             protected void Add<T>(T t, Tuple result) where T : ILinear<T>
@@ -72,7 +88,6 @@ namespace ConsoleApplication
                 {
                     result.V1 = V1 + tt.V1;
                     result.V2 = V2 + tt.V2;
-                    result.V3 = V3 + tt.V3;
                     return;
                 }
                 throw new ArgumentException("Adding incompatible tuples");
@@ -115,14 +130,13 @@ namespace ConsoleApplication
 
             public double B
             {
-                get => Content.V3;
-                set => Content.V3 = B;
+                get => Content.V2;
+                set => Content.V2 = B;
             }
 
             public WTuple(Tuple tuple)
             {
                 Content = tuple;
-                Content.V2 = -1;
             }
         }
 
@@ -136,17 +150,10 @@ namespace ConsoleApplication
                 set => Content.V1 = value;
             }
 
-            public double Y
-            {
-                get => Content.V2;
-                set => Content.V2 = value;
-            }
-
- 
             public Sample(Tuple tuple)
             {
                 Content = tuple;
-                Content.V3 = 0;
+                Content.V2 = 1;
             }
         }
 
@@ -269,7 +276,8 @@ namespace ConsoleApplication
                 }
             }
 
-            public TRes Quadratic<T, TRes>(IVector<T> v, Func<TRes,TRes,TRes> addRes) where T : IDottable<T, TRes>, ILinear<T>
+            public TRes Quadratic<T, TRes>(IVector<T> v, Func<TRes,TRes,TRes> addRes) 
+                where T : IDottable<T, TRes>, ILinear<T>
             {
                 Debug.Assert(ColNumber == v.Length);
                 Debug.Assert(RowNumber == v.Length);
@@ -390,7 +398,7 @@ namespace ConsoleApplication
         class DottableVector<T, TRes> : Vector<T>, IDottable<IVector<T>, TRes>, ILinear<DottableVector<T, TRes>>
             where T : IDottable<T, TRes>, ILinear<T>
         {
-            public Func<TRes, TRes, TRes> AddFunc {get;}
+            public Func<TRes, TRes, TRes> AddFunc { get; }
             
             public DottableVector(int len, Func<TRes, TRes, TRes> add) : base(len)
             {
@@ -451,10 +459,10 @@ namespace ConsoleApplication
 
                 var enum2 = t.GetEnumerator();
                 var avail2 = enum2.MoveNext();
-                for ( ; avail2 && avail2; avail1 = enum1.MoveNext(), avail2 = enum2.MoveNext())
+                for ( ; avail1 || avail2; avail1 = enum1.MoveNext(), avail2 = enum2.MoveNext())
                 {
-                    var v1 = enum1.Current;
-                    var v2 = enum2.Current;
+                    var v1 = avail1 ? enum1.Current : TypeFactory.Instance.Create<T>();
+                    var v2 = avail2 ? enum2.Current : TypeFactory.Instance.Create<T2>();
                     var v = v1.Add<T2>(v2);
                     res.AddComponent(v, i);
                     i++;
@@ -497,7 +505,8 @@ namespace ConsoleApplication
             }
         }
 
-        class DoubleDottableVector<T> : DottableVector<T, double> where T : IDottable<T, double>, ILinear<T>
+        class DoubleDottableVector<T> : DottableVector<T, double> 
+            where T : IDottable<T, double>, ILinear<T>
         {
             public DoubleDottableVector(int len) : base(len, DoubleAdd)
             {
@@ -537,7 +546,13 @@ namespace ConsoleApplication
 
             public PMatrix P;
             
-            public RLSEMapper(int tapCount = 5, double lambda = 0.99,  double delta = 1.0)
+            /// <summary>
+            ///  Construct the RLSE mapper
+            /// </summary>
+            /// <param name="tapCount">Filter order 'p' + 1</param>
+            /// <param name="lambda">How much previous samples contribute to current, the greater the more</param>
+            /// <param name="delta">Initial values on diagonal of P roughly corrspond to a priori auto-covariance of input</param>
+            public RLSEMapper(int tapCount = 5, double lambda = 0.9,  double delta = 1)
             {
                 TapCount = tapCount;
                 P = new PMatrix(TapCount);
@@ -560,11 +575,10 @@ namespace ConsoleApplication
                 var sample = new Sample(new Tuple())
                 {
                     X = x,
-                    Y = y
                 };
                 Xs.AddFirst(sample.Content);
 
-                var a = -Xs.Dot<Tuple>(Ws);  // d(n) always 0
+                var a = y-Xs.Dot<Tuple>(Ws);
 
                 var px = new DoubleDottableVector<Tuple>(P.RowNumber);
                 P.LeftMultiply(Xs, px);
@@ -588,7 +602,7 @@ namespace ConsoleApplication
                     var w = new WTuple(wt);
                     return w.K * x + w.B;
                 }
-                throw new InvalidOperationException("Model not establshed");
+                throw new InvalidOperationException("Model not established");
             }
             
             public double MapYToX(double y)
@@ -599,18 +613,18 @@ namespace ConsoleApplication
                     var w = new WTuple(wt);
                     return (y - w.B) / w.K;
                 }
-                throw new InvalidOperationException("Model not establshed");
+                throw new InvalidOperationException("Model not established");
             }
         }
 
         public static void Main(string[] args)
         {
-            var rlse = new RLSEMapper();
+            var rlse = new RLSEMapper(1);
             var k = 3;
             var b = 2;
             var rand = new Random();
-            var ampNoise = 0.6;
-            for (var i = 0; i < 20; i++)
+            var ampNoise = 0;// 0.6;
+            for (var i = 0; i < 100; i++)
             {
                 var x = -5 + 10 * rand.NextDouble();
                 var y = k*x + b + rand.NextDouble() * ampNoise;

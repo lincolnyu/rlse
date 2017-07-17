@@ -15,15 +15,28 @@ namespace ConsoleApplication
 
         public delegate void IndexedBiOp<T1,T2>(T1 t1, T2 t2, int i1, int i2);
 
+        public static double DoubleAdd(double a, double b) => a+ b;
+
         interface IDottable<in T, TRes>
         {
             TRes Dot(T other);
+
+            TRes Dot<T2>(T2 other) where T2 : IDottable<T2, TRes>;
         }
 
         interface ILinear<T>
         {
             T Scale(double scale);
-            T Add(T t);
+
+            T Add<T2>(T2 t) where T2 : ILinear<T2>;
+        }
+
+        interface IVector<T> : IEnumerable<T>
+        {
+            int Length { get; }
+
+            void AddComponent(T t, int optionalIndex);
+            void Reset();
         }
 
         class Tuple : IDottable<Tuple, double>, ILinear<Tuple>
@@ -35,66 +48,106 @@ namespace ConsoleApplication
             public virtual double Dot(Tuple other)
                 => V1 * other.V1 + V2 * other.V2 + V3 * other.V3;
 
-            public virtual Tuple Scale(double scale)
-                => new Tuple
+            public double Dot<T2>(T2 other) where T2 : IDottable<T2, double>
+            {
+                var t = other as Tuple;
+                if (t != null)
                 {
-                    V1 = V1 * scale,
-                    V2 = V2 * scale,
-                    V3 = V3 * scale
-                };
+                    return Dot(t);
+                }
+                throw new ArgumentException("Dotting incompatible tuples");
+            }
+
+            protected void Scale(double scale, Tuple result)
+            {
+                result.V1 = V1 * scale;
+                result.V2 = V2 * scale;
+                result.V3 = V3 * scale;
+            }
+
+            protected void Add<T>(T t, Tuple result) where T : ILinear<T>
+            {
+                var tt = t as Tuple;
+                if (tt != null)
+                {
+                    result.V1 = V1 + tt.V1;
+                    result.V2 = V2 + tt.V2;
+                    result.V3 = V3 + tt.V3;
+                    return;
+                }
+                throw new ArgumentException("Adding incompatible tuples");
+            }
+
+            public virtual Tuple Scale(double scale)
+            {
+                var res = new Tuple();
+                Scale(scale, res);
+                return res;
+            }
 
             public Tuple Add(Tuple t)
-                => new Tuple
-                {
-                    V1 = V1 + t.V1,
-                    V2 = V2 + t.V2,
-                    V3 = V3 + t.V3
-                };
+            {
+                var res = new Tuple();
+                Add(t, res);
+                return res;
+            }
+
+            public Tuple Add<T>(T t) where T : ILinear<T>
+            {
+                var res = new Tuple();
+                Add(t, res);
+                return res;
+            }
 
             public static double operator*(Tuple a, Tuple b) => a.Dot(b);
         }
 
-        class WTuple : Tuple
+        // WTuple adapter
+        class WTuple
         {
-            public double K => V1;
-            public double B => V3;
-            public WTuple(double k, double b)
+            public Tuple Content {get;}
+
+            public double K
             {
-                V1 = k;
-                V2 = -1;
-                V3 = b;
+                get => Content.V1;
+                set => Content.V1 = value;
             }
 
-            public override double Dot(Tuple other) => other.Dot(this);
-            
-        }
-
-        class Sample : Tuple
-        {
-            public double X => V1;
-            public double Y => V2;
-            public Sample(double x, double y)
+            public double B
             {
-                V1 = x;
-                V2 = y;
+                get => Content.V3;
+                set => Content.V3 = B;
             }
 
-            public override double Dot(Tuple other)
+            public WTuple(Tuple tuple)
             {
-                if (other is WTuple w)
-                {
-                    return w.K * X + w.B - Y;
-                }
-                return base.Dot(other);
+                Content = tuple;
+                Content.V2 = -1;
             }
         }
 
-        interface IVector<T> : IEnumerable<T>
+        class Sample
         {
-            int Length { get; }
+            public Tuple Content {get;}
 
-            void Add(T t, int optionalIndex);
-            void Reset();
+            public double X
+            {
+                get => Content.V1;
+                set => Content.V1 = value;
+            }
+
+            public double Y
+            {
+                get => Content.V2;
+                set => Content.V2 = value;
+            }
+
+ 
+            public Sample(Tuple tuple)
+            {
+                Content = tuple;
+                Content.V3 = 0;
+            }
         }
 
         class PMatrix
@@ -119,7 +172,33 @@ namespace ConsoleApplication
             public int RowNumber => Data.GetLength(0);
             public int ColNumber => Data.GetLength(1);
             
-            public PMatrix Mutlply(PMatrix right)
+            public static PMatrix operator*(PMatrix a, PMatrix b)
+                => a.Multiply(b);
+
+            public static PMatrix operator+(PMatrix a, PMatrix b)
+                => a.Add(b, true);
+
+            public static PMatrix operator-(PMatrix a, PMatrix b)
+                => a.Add(b, false);
+
+            private PMatrix Add(PMatrix right, bool plus=false)
+            {
+                Debug.Assert(RowNumber == right.RowNumber);
+                Debug.Assert(ColNumber == right.ColNumber);
+                
+                var result = new PMatrix(RowNumber, ColNumber);
+                for (var i = 0; i <RowNumber; i++)
+                {
+                    for (var j = 0; j < ColNumber; j++)
+                    {
+                        var tmp = plus? right[i,j] : -right[i,j];
+                        result[i,j] = Data[i,j] + tmp;
+                    }
+                }
+                return result;
+            }
+
+            public PMatrix Multiply(PMatrix right)
             {
                 Debug.Assert(ColNumber == right.RowNumber);
                 var result = new PMatrix(RowNumber, right.ColNumber);
@@ -137,9 +216,6 @@ namespace ConsoleApplication
                 }
                 return result;
             }
-
-            public static PMatrix operator*(PMatrix left, PMatrix right)
-                => left.Mutlply(right);
 
             public void RightMultiply<T>(IVector<T> left, IVector<T> result)
                 where T : ILinear<T>
@@ -163,7 +239,7 @@ namespace ConsoleApplication
                         }
                         j++;
                     }
-                    result.Add(t, i);
+                    result.AddComponent(t, i);
                 }
             }
 
@@ -189,19 +265,47 @@ namespace ConsoleApplication
                         }
                         j++;
                     }
-                    result.Add(t, i);
+                    result.AddComponent(t, i);
                 }
             }
 
-            public TRes Quadratic<T, TRes>(IVector<T> v) where T : IDottable<T, TRes>,
-                ILinear<T>
+            public TRes Quadratic<T, TRes>(IVector<T> v, Func<TRes,TRes,TRes> addRes) where T : IDottable<T, TRes>, ILinear<T>
             {
                 Debug.Assert(ColNumber == v.Length);
                 Debug.Assert(RowNumber == v.Length);
-                var tmp = new Vector<T>(v.Length);
+                var tmp = new DottableVector<T, TRes>(v.Length, addRes);
                 RightMultiply(v, tmp);
-                var tmpDot = (IDottable<IVector<T>,TRes>)tmp;
-                return tmpDot.Dot(v);
+                return tmp.Dot(v);
+            }
+
+            public void Indentity(double v = 1.0)
+            {
+                Debug.Assert(RowNumber == ColNumber);
+                for (var i = 0; i < RowNumber; i++)
+                {
+                    for (var j = 0; j < ColNumber; j++)
+                    {
+                        if (i == j)
+                        {
+                            Data[i,j] = v;
+                        }
+                        else
+                        {
+                            Data[i,j] = 0;
+                        }
+                    }
+                }
+            }
+
+            public void ScaleBy(double v)
+            {
+                for (var i = 0; i < RowNumber; i++)
+                {
+                    for (var j = 0; j < ColNumber; j++)
+                    {
+                        Data[i,j] *= v;
+                    }
+                }
             }
         }
 
@@ -267,7 +371,7 @@ namespace ConsoleApplication
                 }
             }
 
-            public void Add(T t, int optionalIndex)
+            public void AddComponent(T t, int optionalIndex)
             {
                 Debug.Assert(optionalIndex == Data.Count);
                 Data.AddLast(t);
@@ -283,71 +387,239 @@ namespace ConsoleApplication
                 => GetEnumerator();
         }
 
-        class TupleVector<T> : Vector<T>, IDottable<IVector<T>, double> 
-            where T : IDottable<T, double>
+        class DottableVector<T, TRes> : Vector<T>, IDottable<IVector<T>, TRes>, ILinear<DottableVector<T, TRes>>
+            where T : IDottable<T, TRes>, ILinear<T>
         {
-            public TupleVector(int len) : base(len)
+            public Func<TRes, TRes, TRes> AddFunc {get;}
+            
+            public DottableVector(int len, Func<TRes, TRes, TRes> add) : base(len)
+            {
+                AddFunc = add;
+            }
+
+            #region IDottable members
+
+            #endregion
+
+            public static DottableVector<T, TRes> operator+(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
+                => a.Add(b);
+
+            public static TRes operator*(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
+                => a.Dot(b);
+
+            public T First => Data.First != null? Data.First.Value : default(T);
+
+            #region IDottable<IVector<T>, TRes> members
+
+            public TRes Dot(IVector<T> other) => Dot<T>(other);
+            public virtual TRes Dot<T2>(T2 other) where T2 : IDottable<T2, TRes>
+            {
+                throw new NotSupportedException();
+            }
+
+            #endregion
+
+            #region ILinear<DottableVector<T, TRes>> members
+            public virtual DottableVector<T, TRes> Add<T2>(T2 t) where T2 : ILinear<T2>
+            {
+                throw new NotSupportedException();
+            }
+
+            #endregion
+
+            public DottableVector<T, TRes> Add(DottableVector<T, TRes> t)
+                => Add((IVector<T>)t);
+
+
+            protected void Scale(double scale, IVector<T> res)
+            {
+                var i = 0;
+                foreach (var v in Data)
+                {
+                    var nv = v.Scale(scale);
+                    res.AddComponent(nv, i);
+                    i++;
+                }
+            }
+
+            protected void Add<T2>(IVector<T2> t, IVector<T> res) where T2 : ILinear<T2>
+            {
+                var i = 0;
+
+                var enum1 = GetEnumerator();
+                var avail1 = enum1.MoveNext();
+
+                var enum2 = t.GetEnumerator();
+                var avail2 = enum2.MoveNext();
+                for ( ; avail2 && avail2; avail1 = enum1.MoveNext(), avail2 = enum2.MoveNext())
+                {
+                    var v1 = enum1.Current;
+                    var v2 = enum2.Current;
+                    var v = v1.Add<T2>(v2);
+                    res.AddComponent(v, i);
+                    i++;
+                }
+            }
+
+            public DottableVector<T, TRes> Scale(double scale)
+            {
+                var res = new DottableVector<T, TRes>(Length, AddFunc);
+                Scale(scale, res);
+                return res;
+            }
+
+            public DottableVector<T, TRes> Add<T2>(IVector<T2> t) where T2 : ILinear<T2>
+            {
+                var res = new DottableVector<T, TRes>(Length, AddFunc);
+                Add(t, res);
+                return res;
+            }
+
+            public TRes Dot<T2>(IVector<T2> other) where T2 : IDottable<T2, TRes>
+            {
+                TRes result = default(TRes);
+                bool first= true;
+                Pair(other, (a,b)=> 
+                    {
+                        var r = a.Dot(b);
+                        if (first) 
+                        {
+                            result = r;
+                            first = false;
+                        }
+                        else
+                        {
+                            result = AddFunc(result, r);
+                        }
+                    }
+                );
+                return result;
+            }
+        }
+
+        class DoubleDottableVector<T> : DottableVector<T, double> where T : IDottable<T, double>, ILinear<T>
+        {
+            public DoubleDottableVector(int len) : base(len, DoubleAdd)
             {
             }
 
-            public static double operator*(TupleVector<T> a, TupleVector<T> b)
-                => a.Dot(b);
+            public new DoubleDottableVector<T> Scale(double scale)
+            {
+                var res = new DoubleDottableVector<T>(Length);
+                Scale(scale, res);
+                return res;
+            }
 
-            public PMatrix DiscarteMultiply(TupleVector<T> other)
+            public new DoubleDottableVector<T> Add<T2>(IVector<T2> t) where T2 : ILinear<T2>
+            {
+                var res = new DoubleDottableVector<T>(Length);
+                Add(t, res);
+                return res;
+            }
+
+            public PMatrix DiscarteMultiply<T2>(IVector<T2> other) where T2 : IDottable<T2, double>
             {
                 var result = new PMatrix(Length, other.Length);
                 Discarte(other, (a, b, i, j)=> result[i,j] = a.Dot(b));
                 return result;
             }
-
-            public double Dot(IVector<T> other)
-            {
-                double result = 0;
-                Pair(other, (a,b)=> result += a.Dot(b));
-                return result;
-            }
         }
 
+        // https://en.wikipedia.org/wiki/Recursive_least_squares_filter
         class RLSEMapper
         {
-            public TupleVector<WTuple> Ws;
-            public TupleVector<Sample> Xs;
+            public DoubleDottableVector<Tuple> Ws;
+            public DoubleDottableVector<Tuple> Xs;
             public int TapCount;
             public double Lambda;
+
+            public double InvDelta {get;}
+
+            public PMatrix P;
             
-            public RLSEMapper(double lambda = 0.99, int tapCount = 5)
+            public RLSEMapper(int tapCount = 5, double lambda = 0.99,  double delta = 1.0)
             {
-                Lambda = lambda;
                 TapCount = tapCount;
+                P = new PMatrix(TapCount);
+                Ws = new DoubleDottableVector<Tuple>(TapCount);
+                Xs = new DoubleDottableVector<Tuple>(TapCount);
+                Lambda = lambda;
+                InvDelta = 1/delta;
                 Reset();
             }
             
             public void Reset()
             {
-                Ws.Fill();
+                P.Indentity(InvDelta);
+                Ws.Reset();
+                Xs.Reset();
             }
             
             public void RecordSample(double x, double y)
             {
-                Xs.AddFirst(new Sample(x,y));
-             //   Xs.Dot(Ws);
+                var sample = new Sample(new Tuple())
+                {
+                    X = x,
+                    Y = y
+                };
+                Xs.AddFirst(sample.Content);
+
+                var a = -Xs.Dot<Tuple>(Ws);  // d(n) always 0
+
+                var px = new DoubleDottableVector<Tuple>(P.RowNumber);
+                P.LeftMultiply(Xs, px);
+                var xpx = P.Quadratic<Tuple, double>(Xs, DoubleAdd);
+                var coeff = 1.0/(Lambda+xpx);
+                var g = px.Scale(coeff);
+
+                var gx = g.DiscarteMultiply(Xs);
+                var gxp = gx * P;
+                P -= gxp;
+                P.ScaleBy(1.0/Lambda);
+
+                Ws = Ws.Add(g.Scale(a));
             }
-        /*  
+
             public double MapXToY(double x)
             {
+                var wt = Ws.First;
+                if (wt != null)
+                {
+                    var w = new WTuple(wt);
+                    return w.K * x + w.B;
+                }
+                throw new InvalidOperationException("Model not establshed");
             }
             
-            public double MapYToX(double Y)
+            public double MapYToX(double y)
             {
+                var wt = Ws.First;
+                if (wt != null)
+                {
+                    var w = new WTuple(wt);
+                    return (y - w.B) / w.K;
+                }
+                throw new InvalidOperationException("Model not establshed");
             }
-            */
         }
+
         public static void Main(string[] args)
         {
-            var s = new Sample(1,2);
-            var w = new WTuple(3,4);
-            var r = s*w;
-            Console.WriteLine($"r={r}");
+            var rlse = new RLSEMapper();
+            var k = 3;
+            var b = 2;
+            var rand = new Random();
+            var ampNoise = 0.6;
+            for (var i = 0; i < 20; i++)
+            {
+                var x = -5 + 10 * rand.NextDouble();
+                var y = k*x + b + rand.NextDouble() * ampNoise;
+                rlse.RecordSample(x, y);
+            }
+        
+            var testX = 4;
+            var testY = rlse.MapXToY(testX);
+            Console.WriteLine($"y for x = 4 is {testY}");
         }
     }
 }

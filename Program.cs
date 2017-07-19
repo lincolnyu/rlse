@@ -31,9 +31,9 @@ namespace ConsoleApplication
 
         public delegate void BiOp<T1, T2>(T1 t1, T2 t2);
 
-        public delegate void IndexedBiOp<T1,T2>(T1 t1, T2 t2, int i1, int i2);
+        public delegate void IndexedBiOp<T1, T2>(T1 t1, T2 t2, int i1, int i2);
 
-        public static double DoubleAdd(double a, double b) => a+ b;
+        public static double DoubleAdd(double a, double b) => a + b;
 
         interface IDottable<in T, TRes>
         {
@@ -114,13 +114,13 @@ namespace ConsoleApplication
                 return res;
             }
 
-            public static double operator*(Tuple a, Tuple b) => a.Dot(b);
+            public static double operator *(Tuple a, Tuple b) => a.Dot(b);
         }
 
         // WTuple adapter
         class WTuple
         {
-            public Tuple Content {get;}
+            public Tuple Content { get; }
 
             public double K
             {
@@ -142,7 +142,7 @@ namespace ConsoleApplication
 
         class Sample
         {
-            public Tuple Content {get;}
+            public Tuple Content { get; }
 
             public double X
             {
@@ -160,46 +160,46 @@ namespace ConsoleApplication
         class PMatrix
         {
             public double[,] Data;
-            
+
             public PMatrix(int rowNumber, int colNumber)
             {
                 Data = new double[rowNumber, colNumber];
             }
-            
-            public PMatrix(int n) : this(n,n)
+
+            public PMatrix(int n) : this(n, n)
             {
             }
 
             public double this[int row, int col]
             {
                 get => Data[row, col];
-                set { Data[row,col] = value;}
+                set { Data[row, col] = value; }
             }
 
             public int RowNumber => Data.GetLength(0);
             public int ColNumber => Data.GetLength(1);
-            
-            public static PMatrix operator*(PMatrix a, PMatrix b)
+
+            public static PMatrix operator *(PMatrix a, PMatrix b)
                 => a.Multiply(b);
 
-            public static PMatrix operator+(PMatrix a, PMatrix b)
+            public static PMatrix operator +(PMatrix a, PMatrix b)
                 => a.Add(b, true);
 
-            public static PMatrix operator-(PMatrix a, PMatrix b)
+            public static PMatrix operator -(PMatrix a, PMatrix b)
                 => a.Add(b, false);
 
-            private PMatrix Add(PMatrix right, bool plus=false)
+            private PMatrix Add(PMatrix right, bool plus = false)
             {
                 Debug.Assert(RowNumber == right.RowNumber);
                 Debug.Assert(ColNumber == right.ColNumber);
-                
+
                 var result = new PMatrix(RowNumber, ColNumber);
-                for (var i = 0; i <RowNumber; i++)
+                for (var i = 0; i < RowNumber; i++)
                 {
                     for (var j = 0; j < ColNumber; j++)
                     {
-                        var tmp = plus? right[i,j] : -right[i,j];
-                        result[i,j] = Data[i,j] + tmp;
+                        var tmp = plus ? right[i, j] : -right[i, j];
+                        result[i, j] = Data[i, j] + tmp;
                     }
                 }
                 return result;
@@ -209,16 +209,16 @@ namespace ConsoleApplication
             {
                 Debug.Assert(ColNumber == right.RowNumber);
                 var result = new PMatrix(RowNumber, right.ColNumber);
-                for (var i = 0; i <RowNumber; i++)
+                for (var i = 0; i < RowNumber; i++)
                 {
                     for (var j = 0; j < right.ColNumber; j++)
                     {
                         double sum = 0;
                         for (var k = 0; k < ColNumber; k++)
                         {
-                            sum += this[i,k] * right[k,j];
+                            sum += this[i, k] * right[k, j];
                         }
-                        result[i,j] = sum;
+                        result[i, j] = sum;
                     }
                 }
                 return result;
@@ -276,7 +276,7 @@ namespace ConsoleApplication
                 }
             }
 
-            public TRes Quadratic<T, TRes>(IVector<T> v, Func<TRes,TRes,TRes> addRes) 
+            public TRes Quadratic<T, TRes>(IVector<T> v, Func<TRes, TRes, TRes> addRes)
                 where T : IDottable<T, TRes>, ILinear<T>
             {
                 Debug.Assert(ColNumber == v.Length);
@@ -295,11 +295,11 @@ namespace ConsoleApplication
                     {
                         if (i == j)
                         {
-                            Data[i,j] = v;
+                            Data[i, j] = v;
                         }
                         else
                         {
-                            Data[i,j] = 0;
+                            Data[i, j] = 0;
                         }
                     }
                 }
@@ -311,7 +311,7 @@ namespace ConsoleApplication
                 {
                     for (var j = 0; j < ColNumber; j++)
                     {
-                        Data[i,j] *= v;
+                        Data[i, j] *= v;
                     }
                 }
             }
@@ -321,12 +321,26 @@ namespace ConsoleApplication
         {
             public int Length { get; private set; }
             public LinkedList<T> Data = new LinkedList<T>();
-            
+
             public Vector(int len)
             {
                 Length = len;
             }
-            
+
+            protected Vector()
+            {
+            }
+
+            public void CopyFrom(Vector<T> other)
+            {
+                Length = other.Length;
+                Data.Clear();
+                foreach (var d in other.Data)
+                {
+                    Data.AddLast(d);
+                }
+            }
+
             public void Fill(T t = default(T))
             {
                 Data.Clear();
@@ -340,7 +354,7 @@ namespace ConsoleApplication
                 Data.AddFirst(t);
                 EnforceLength();
             }
-            
+
             private void EnforceLength()
             {
                 while (Data.Count > Length)
@@ -348,12 +362,12 @@ namespace ConsoleApplication
                     Data.RemoveLast();
                 }
             }
-            
+
             public void Pair<T2>(IVector<T2> other, BiOp<T, T2> op)
             {
                 var p1 = Data.First;
                 var enum2 = other.GetEnumerator();
-                for (var avail2 = enum2.MoveNext(); p1 != null && avail2; 
+                for (var avail2 = enum2.MoveNext(); p1 != null && avail2;
                     p1 = p1.Next, avail2 = enum2.MoveNext())
                 {
                     var v2 = enum2.Current;
@@ -368,7 +382,7 @@ namespace ConsoleApplication
                 {
                     var j = 0;
                     var enum2 = other.GetEnumerator();
-                    for (var avail2 = enum2.MoveNext(); avail2; 
+                    for (var avail2 = enum2.MoveNext(); avail2;
                         avail2 = enum2.MoveNext())
                     {
                         var v2 = enum2.Current;
@@ -398,24 +412,34 @@ namespace ConsoleApplication
         class DottableVector<T, TRes> : Vector<T>, IDottable<IVector<T>, TRes>, ILinear<DottableVector<T, TRes>>
             where T : IDottable<T, TRes>, ILinear<T>
         {
-            public Func<TRes, TRes, TRes> AddFunc { get; }
-            
+            public Func<TRes, TRes, TRes> AddFunc { get; private set; }
+
             public DottableVector(int len, Func<TRes, TRes, TRes> add) : base(len)
             {
                 AddFunc = add;
+            }
+
+            protected DottableVector() : base()
+            {
+            }
+
+            public void CopyFrom(DottableVector<T, TRes> other)
+            {
+                base.CopyFrom(other);
+                AddFunc = other.AddFunc;
             }
 
             #region IDottable members
 
             #endregion
 
-            public static DottableVector<T, TRes> operator+(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
+            public static DottableVector<T, TRes> operator +(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
                 => a.Add(b);
 
-            public static TRes operator*(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
+            public static TRes operator *(DottableVector<T, TRes> a, DottableVector<T, TRes> b)
                 => a.Dot(b);
 
-            public T First => Data.First != null? Data.First.Value : default(T);
+            public T First => Data.First != null ? Data.First.Value : default(T);
 
             #region IDottable<IVector<T>, TRes> members
 
@@ -438,7 +462,6 @@ namespace ConsoleApplication
             public DottableVector<T, TRes> Add(DottableVector<T, TRes> t)
                 => Add((IVector<T>)t);
 
-
             protected void Scale(double scale, IVector<T> res)
             {
                 var i = 0;
@@ -459,7 +482,7 @@ namespace ConsoleApplication
 
                 var enum2 = t.GetEnumerator();
                 var avail2 = enum2.MoveNext();
-                for ( ; avail1 || avail2; avail1 = enum1.MoveNext(), avail2 = enum2.MoveNext())
+                for (; avail1 || avail2; avail1 = enum1.MoveNext(), avail2 = enum2.MoveNext())
                 {
                     var v1 = avail1 ? enum1.Current : TypeFactory.Instance.Create<T>();
                     var v2 = avail2 ? enum2.Current : TypeFactory.Instance.Create<T2>();
@@ -486,29 +509,33 @@ namespace ConsoleApplication
             public TRes Dot<T2>(IVector<T2> other) where T2 : IDottable<T2, TRes>
             {
                 TRes result = default(TRes);
-                bool first= true;
-                Pair(other, (a,b)=> 
+                bool first = true;
+                Pair(other, (a, b) =>
+                {
+                    var r = a.Dot(b);
+                    if (first)
                     {
-                        var r = a.Dot(b);
-                        if (first) 
-                        {
-                            result = r;
-                            first = false;
-                        }
-                        else
-                        {
-                            result = AddFunc(result, r);
-                        }
+                        result = r;
+                        first = false;
                     }
+                    else
+                    {
+                        result = AddFunc(result, r);
+                    }
+                }
                 );
                 return result;
             }
         }
 
-        class DoubleDottableVector<T> : DottableVector<T, double> 
+        class DoubleDottableVector<T> : DottableVector<T, double>
             where T : IDottable<T, double>, ILinear<T>
         {
             public DoubleDottableVector(int len) : base(len, DoubleAdd)
+            {
+            }
+
+            protected DoubleDottableVector() : base()
             {
             }
 
@@ -529,8 +556,15 @@ namespace ConsoleApplication
             public PMatrix DiscarteMultiply<T2>(IVector<T2> other) where T2 : IDottable<T2, double>
             {
                 var result = new PMatrix(Length, other.Length);
-                Discarte(other, (a, b, i, j)=> result[i,j] = a.Dot(b));
+                Discarte(other, (a, b, i, j) => result[i, j] = a.Dot(b));
                 return result;
+            }
+
+            public DoubleDottableVector<T> Clone()
+            {
+                var clone = new DoubleDottableVector<T>();
+                clone.CopyFrom(this);
+                return clone;
             }
         }
 
@@ -542,76 +576,77 @@ namespace ConsoleApplication
             public int TapCount;
             public double Lambda;
 
-            public double InvDelta {get;}
+            public double InvDelta { get; }
 
             public PMatrix P;
-            
+
             /// <summary>
             ///  Construct the RLSE mapper
             /// </summary>
             /// <param name="tapCount">Filter order 'p' + 1</param>
             /// <param name="lambda">How much previous samples contribute to current, the greater the more</param>
             /// <param name="delta">Initial values on diagonal of P roughly corrspond to a priori auto-covariance of input</param>
-            public RLSEMapper(int tapCount = 5, double lambda = 0.9,  double delta = 1)
+            public RLSEMapper(int tapCount = 1, double lambda = 0.99, double delta = 1)
             {
                 TapCount = tapCount;
                 P = new PMatrix(TapCount);
                 Ws = new DoubleDottableVector<Tuple>(TapCount);
                 Xs = new DoubleDottableVector<Tuple>(TapCount);
                 Lambda = lambda;
-                InvDelta = 1/delta;
+                InvDelta = 1 / delta;
                 Reset();
             }
-            
+
             public void Reset()
             {
                 P.Indentity(InvDelta);
                 Ws.Reset();
                 Xs.Reset();
             }
-            
+
             public void RecordSample(double x, double y)
             {
                 var sample = new Sample(new Tuple())
                 {
-                    X = x,
+                    X = x
                 };
                 Xs.AddFirst(sample.Content);
 
-                var a = y-Xs.Dot<Tuple>(Ws);
+                var a = y - Xs.Dot<Tuple>(Ws);
+                Console.WriteLine($"a={a}");
 
                 var px = new DoubleDottableVector<Tuple>(P.RowNumber);
                 P.LeftMultiply(Xs, px);
                 var xpx = P.Quadratic<Tuple, double>(Xs, DoubleAdd);
-                var coeff = 1.0/(Lambda+xpx);
+                var coeff = 1.0 / (Lambda + xpx);
                 var g = px.Scale(coeff);
 
                 var gx = g.DiscarteMultiply(Xs);
                 var gxp = gx * P;
                 P -= gxp;
-                P.ScaleBy(1.0/Lambda);
+                P.ScaleBy(1.0 / Lambda);
 
                 Ws = Ws.Add(g.Scale(a));
             }
 
             public double MapXToY(double x)
             {
-                var wt = Ws.First;
-                if (wt != null)
-                {
-                    var w = new WTuple(wt);
-                    return w.K * x + w.B;
-                }
-                throw new InvalidOperationException("Model not established");
+                var xs = Xs.Clone();
+                xs.AddFirst(new Sample(new Tuple()) { X = x }.Content);
+                return xs.Dot<Tuple>(Ws);
             }
-            
+
             public double MapYToX(double y)
             {
+                var xs = Xs.Clone();
+                xs.AddFirst(new Sample(new Tuple()) { X = 0 }.Content);
+                var y0 = xs.Dot<Tuple>(Ws);
+                var d = y - y0;
                 var wt = Ws.First;
                 if (wt != null)
                 {
                     var w = new WTuple(wt);
-                    return (y - w.B) / w.K;
+                    return d / w.K;
                 }
                 throw new InvalidOperationException("Model not established");
             }
@@ -619,21 +654,28 @@ namespace ConsoleApplication
 
         public static void Main(string[] args)
         {
-            var rlse = new RLSEMapper(1);
-            var k = 3;
-            var b = 2;
+            var rlse = new RLSEMapper(1, 0.1, 400);
+            var k = 7;
+            var b = 3;
             var rand = new Random();
-            var ampNoise = 0;// 0.6;
+            var ampNoise = 0.6;
             for (var i = 0; i < 100; i++)
             {
-                var x = -5 + 10 * rand.NextDouble();
-                var y = k*x + b + rand.NextDouble() * ampNoise;
+                //var x = -5 + 10 * rand.NextDouble();
+                var x = 20 * rand.NextDouble();
+                var y = k * x + b + rand.NextDouble() * ampNoise;
                 rlse.RecordSample(x, y);
+                var yn = rlse.MapXToY(x);
+                Console.WriteLine($"yn for x = {x} is {yn} actual y is {y}; w = {rlse.Ws.First.V1},{rlse.Ws.First.V2}");
             }
-        
+
             var testX = 4;
             var testY = rlse.MapXToY(testX);
             Console.WriteLine($"y for x = 4 is {testY}");
+
+            var testY2 = 31;
+            var testX2 = rlse.MapYToX(testY2);
+            Console.WriteLine($"x for y = 31 is {testX2}");
         }
     }
 }
